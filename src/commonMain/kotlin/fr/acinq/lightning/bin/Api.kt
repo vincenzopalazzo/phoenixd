@@ -203,6 +203,13 @@ class Api(
                 get("getoffer") {
                     call.respond(nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).first.encode())
                 }
+                post("getoffer") {
+                    val formParameters = call.receiveParameters()
+                    val offer = formParameters.getOffer("description")
+                    val amount = formParameters.getOffer("amount")
+                    // FIXME(vincenzopalazzo): create a new offer inside the default offer.
+                    call.respond(nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).first.encode())
+                }
                 get("getlnaddress") {
                     if (peer.channels.isEmpty()) {
                         call.respond("must have one channel")
