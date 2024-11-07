@@ -1,13 +1,11 @@
 package fr.acinq.lightning.bin
 
-import fr.acinq.bitcoin.Bitcoin
-import fr.acinq.bitcoin.ByteVector
-import fr.acinq.bitcoin.ByteVector32
-import fr.acinq.bitcoin.Script
+import fr.acinq.bitcoin.*
 import fr.acinq.bitcoin.utils.Either
 import fr.acinq.bitcoin.utils.Try
 import fr.acinq.bitcoin.utils.toEither
 import fr.acinq.lightning.BuildVersions
+import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning.randomBytes32
 import fr.acinq.lightning.NodeParams
 import fr.acinq.lightning.PaymentEvents
@@ -57,6 +55,8 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import io.ktor.utils.io.charsets.*
+import io.ktor.utils.io.core.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -205,10 +205,9 @@ class Api(
                 }
                 post("getoffer") {
                     val formParameters = call.receiveParameters()
-                    val offer = formParameters.getOffer("description")
-                    val amount = formParameters.getOffer("amount")
-                    // FIXME(vincenzopalazzo): create a new offer inside the default offer.
-                    call.respond(nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).first.encode())
+                    val description = formParameters.getString("description")
+                    val overrideAmount = formParameters["amountSat"]?.let { it.toLongOrNull() ?: invalidType("amountSat", "integer") }?.sat?.toMilliSatoshi()
+                    call.respond(nodeParams.offer(amount = overrideAmount, description = description, peer.walletParams.trampolineNode.id).first.encode())
                 }
                 get("getlnaddress") {
                     if (peer.channels.isEmpty()) {
