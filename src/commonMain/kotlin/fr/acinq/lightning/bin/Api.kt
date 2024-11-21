@@ -207,7 +207,8 @@ class Api(
                     val formParameters = call.receiveParameters()
                     val description = formParameters.getString("description")
                     val overrideAmount = formParameters["amountSat"]?.let { it.toLongOrNull() ?: invalidType("amountSat", "integer") }?.sat?.toMilliSatoshi()
-                    call.respond(nodeParams.offer(amount = overrideAmount, description = description, peer.walletParams.trampolineNode.id).first.encode())
+                    val pathId = randomBytes32()
+                    call.respond(peer.createOffer(PrivateKey(pathId.toByteArray()), amount = overrideAmount, description = description))
                 }
                 get("getlnaddress") {
                     if (peer.channels.isEmpty()) {
