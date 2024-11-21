@@ -2,7 +2,7 @@
 FROM eclipse-temurin:21-jdk-jammy AS BUILD
 
 # Set necessary args and environment variables for building phoenixd
-ARG LIGHTNING_KMP_BRANCH=macros/offer-with-description
+ARG LIGHTNING_KMP_BRANCH=macros/offer-with-description-thomash
 
 # Upgrade all packages and install dependencies
 RUN apt-get update \
