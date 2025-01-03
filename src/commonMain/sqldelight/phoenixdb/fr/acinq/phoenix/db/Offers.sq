@@ -1,0 +1,16 @@
+import kotlin.Boolean;
+
+PRAGMA foreign_keys = 1;
+
+-- offers table
+-- note: boolean are stored as INTEGER, with 0=false
+CREATE TABLE offers (
+    offer BLOB NOT NULL PRIMARY KEY
+);
+
+-- offers queries
+listOffers:
+SELECT * FROM offers;
+
+insertOffer:
+INSERT INTO offers VALUES (?);
