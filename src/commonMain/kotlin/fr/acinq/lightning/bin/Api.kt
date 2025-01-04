@@ -5,12 +5,12 @@ import fr.acinq.bitcoin.utils.Either
 import fr.acinq.bitcoin.utils.Try
 import fr.acinq.bitcoin.utils.toEither
 import fr.acinq.lightning.BuildVersions
-import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning.randomBytes32
 import fr.acinq.lightning.NodeParams
 import fr.acinq.lightning.PaymentEvents
 import fr.acinq.lightning.bin.api.WebsocketProtocolAuthenticationProvider
 import fr.acinq.lightning.bin.csv.WalletPaymentCsvWriter
+import fr.acinq.lightning.bin.db.SqliteOffersDb
 import fr.acinq.lightning.bin.db.SqlitePaymentsDb
 import fr.acinq.lightning.bin.db.WalletPaymentId
 import fr.acinq.lightning.bin.json.ApiType.*
@@ -179,6 +179,9 @@ class Api(
                 get("listchannels") {
                     call.respond(peer.channels.values.toList())
                 }
+                get("listoffers") {
+                    call.respond(offersDb.listOffer())
+                }
                 post("createinvoice") {
                     val formParameters = call.receiveParameters()
                     val amount = formParameters.getOptionalLong("amountSat")?.sat
@@ -203,7 +206,9 @@ class Api(
                 get("getoffer") {
                     call.respond(nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).first.encode())
                 }
-                post("getoffer") {
+                // FIXME: when restarting we should register to the offer manager the offers that are generated and
+                // still valid.
+                post("createoffer") {
                     val formParameters = call.receiveParameters()
                     val description = formParameters.getString("description")
                     val overrideAmount = formParameters["amountSat"]?.let { it.toLongOrNull() ?: invalidType("amountSat", "integer") }?.sat?.toMilliSatoshi()
@@ -516,6 +521,8 @@ class Api(
     }
 
     private val paymentDb: SqlitePaymentsDb by lazy { peer.db.payments as SqlitePaymentsDb }
+
+    private val offersDb: SqliteOffersDb by lazy { peer.db.offers as SqliteOffersDb }
 
     private fun missing(argName: String): Nothing = throw MissingRequestParameterException(argName)
 

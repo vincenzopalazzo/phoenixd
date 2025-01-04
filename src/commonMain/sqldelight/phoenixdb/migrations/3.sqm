@@ -1,0 +1,8 @@
+-- Migration: v2 -> v3
+--
+-- Changes:
+-- * Added [offers] table
+
+CREATE TABLE offers (
+    offer BLOB NOT NULL PRIMARY KEY
+);

@@ -29,6 +29,7 @@ import fr.acinq.lightning.bin.conf.ListValueSource
 import fr.acinq.lightning.bin.conf.PhoenixSeed
 import fr.acinq.lightning.bin.conf.getOrGenerateSeed
 import fr.acinq.lightning.bin.db.SqliteChannelsDb
+import fr.acinq.lightning.bin.db.SqliteOffersDb
 import fr.acinq.lightning.bin.db.SqlitePaymentsDb
 import fr.acinq.lightning.bin.db.WalletPaymentId
 import fr.acinq.lightning.bin.db.createPhoenixDb
@@ -45,7 +46,6 @@ import fr.acinq.lightning.io.TcpSocket
 import fr.acinq.lightning.logging.LoggerFactory
 import fr.acinq.lightning.payment.LiquidityPolicy
 import fr.acinq.lightning.utils.*
-import fr.acinq.lightning.wire.LiquidityAds
 import fr.acinq.phoenix.db.*
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -259,6 +259,8 @@ class Phoenixd : CliktCommand() {
         val database = createPhoenixDb(driver)
         val channelsDb = SqliteChannelsDb(driver, database)
         val paymentsDb = SqlitePaymentsDb(database)
+        // FIXME: remove the driver from the constructor
+        val offersDb = SqliteOffersDb(driver, database)
 
         val mempoolSpace = MempoolSpaceClient(mempoolSpaceUrl, loggerFactory)
         val watcher = MempoolSpaceWatcher(mempoolSpace, scope, loggerFactory, pollingInterval = mempoolPollingInterval)
@@ -266,6 +268,7 @@ class Phoenixd : CliktCommand() {
             nodeParams = nodeParams, walletParams = lsp.walletParams, client = mempoolSpace, watcher = watcher, db = object : Databases {
                 override val channels: ChannelsDb get() = channelsDb
                 override val payments: PaymentsDb get() = paymentsDb
+                override val offers: OffersDb get() = offersDb
             }, socketBuilder = TcpSocket.Builder(), scope
         )
 
