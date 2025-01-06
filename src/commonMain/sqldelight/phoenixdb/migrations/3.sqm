@@ -4,5 +4,7 @@
 -- * Added [offers] table
 
 CREATE TABLE offers (
-    offer BLOB NOT NULL PRIMARY KEY
+    secret BLOB NOT NULL PRIMARY KEY,
+    amount_msat INTEGER,
+    description TEXT
 );

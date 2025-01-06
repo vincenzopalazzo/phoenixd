@@ -178,10 +178,9 @@ class Api(
                     call.respond(peer.channels.values.toList())
                 }
                 get("listoffers") {
-                    // FIXME: return a list of offers encoded, but we need a way to identify this offer in case we want to revoke it
-                    // it is safe use the secret in a hex encoding?
-                    // { "offer": <offer>, "amount": <amount>, "description": <description>, "expiry": <expiry>}
-                    call.respond(offersDb.listOffers())
+                    call.respond(offersDb.listOffers().map { (secret, offer) ->
+                        OfferResponse(secret, offer)
+                    })
                 }
                 post("createinvoice") {
                     val formParameters = call.receiveParameters()
@@ -210,9 +209,9 @@ class Api(
                 post("createoffer") {
                     val formParameters = call.receiveParameters()
                     val description = formParameters.getString("description")
-                    val overrideAmount = formParameters["amountSat"]?.let { it.toLongOrNull() ?: invalidType("amountSat", "integer") }?.sat?.toMilliSatoshi()
+                    val amount = formParameters["amountSat"]?.let { it.toLongOrNull() ?: invalidType("amountSat", "integer") }?.sat?.toMilliSatoshi()
                     val pathId = randomBytes32()
-                    call.respond(peer.createOffer(PrivateKey(pathId.toByteArray()), amount = overrideAmount, description = description).encode())
+                    call.respond(peer.createOffer(PrivateKey(pathId.toByteArray()), amount, description = description).encode())
                 }
                 get("getlnaddress") {
                     if (peer.channels.isEmpty()) {

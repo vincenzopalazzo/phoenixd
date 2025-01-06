@@ -15,6 +15,7 @@
 package fr.acinq.lightning.bin.json
 
 import fr.acinq.bitcoin.ByteVector32
+import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.PublicKey
 import fr.acinq.bitcoin.Satoshi
 import fr.acinq.bitcoin.TxId
@@ -30,6 +31,7 @@ import fr.acinq.lightning.payment.Bolt11Invoice
 import fr.acinq.lightning.payment.OfferPaymentMetadata
 import fr.acinq.lightning.utils.UUID
 import fr.acinq.lightning.wire.LiquidityAds
+import fr.acinq.lightning.wire.OfferTypes
 import io.ktor.http.*
 import kotlinx.datetime.Clock
 import kotlinx.serialization.SerialName
@@ -174,6 +176,17 @@ sealed class ApiType {
             description = lnurl.defaultDescription,
             k1 = lnurl.k1,
             invoice = invoice.write()
+        )
+    }
+
+    @Serializable
+    data class OfferResponse(val secret: String, val amount: Long?, val description: String?, val expiry: Long?, val offer: String) {
+        constructor(secret: PrivateKey, offer: OfferTypes.Offer) : this(
+            secret = secret.value.toHex(),
+            amount = offer.amount?.msat,
+            description = offer.description,
+            expiry = offer.expirySeconds,
+            offer = offer.encode()
         )
     }
 }
