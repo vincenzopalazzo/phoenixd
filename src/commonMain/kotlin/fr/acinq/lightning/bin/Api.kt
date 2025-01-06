@@ -55,8 +55,6 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
-import io.ktor.utils.io.charsets.*
-import io.ktor.utils.io.core.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -180,7 +178,10 @@ class Api(
                     call.respond(peer.channels.values.toList())
                 }
                 get("listoffers") {
-                    call.respond(offersDb.listOffer())
+                    // FIXME: return a list of offers encoded, but we need a way to identify this offer in case we want to revoke it
+                    // it is safe use the secret in a hex encoding?
+                    // { "offer": <offer>, "amount": <amount>, "description": <description>, "expiry": <expiry>}
+                    call.respond(offersDb.listOffers())
                 }
                 post("createinvoice") {
                     val formParameters = call.receiveParameters()
@@ -206,8 +207,6 @@ class Api(
                 get("getoffer") {
                     call.respond(nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).first.encode())
                 }
-                // FIXME: when restarting we should register to the offer manager the offers that are generated and
-                // still valid.
                 post("createoffer") {
                     val formParameters = call.receiveParameters()
                     val description = formParameters.getString("description")

@@ -259,8 +259,7 @@ class Phoenixd : CliktCommand() {
         val database = createPhoenixDb(driver)
         val channelsDb = SqliteChannelsDb(driver, database)
         val paymentsDb = SqlitePaymentsDb(database)
-        // FIXME: remove the driver from the constructor
-        val offersDb = SqliteOffersDb(driver, database)
+        val offersDb = SqliteOffersDb(database, nodeParams, lsp.walletParams.trampolineNode.id)
 
         val mempoolSpace = MempoolSpaceClient(mempoolSpaceUrl, loggerFactory)
         val watcher = MempoolSpaceWatcher(mempoolSpace, scope, loggerFactory, pollingInterval = mempoolPollingInterval)

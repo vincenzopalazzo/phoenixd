@@ -2,12 +2,20 @@ PRAGMA foreign_keys = 1;
 
 -- offers table
 CREATE TABLE offers (
-    offer BLOB NOT NULL PRIMARY KEY
+    secret BLOB NOT NULL PRIMARY KEY,
+    amount_msat INTEGER,
+    description TEXT
 );
 
 -- offers queries
 listOffers:
 SELECT * FROM offers;
 
+getOffer:
+SELECT * FROM offers WHERE secret = ?;
+
 insertOffer:
-INSERT INTO offers VALUES (?);
+INSERT INTO offers VALUES (?, ?, ?);
+
+deleteOffer:
+DELETE FROM offers WHERE secret = ?;
