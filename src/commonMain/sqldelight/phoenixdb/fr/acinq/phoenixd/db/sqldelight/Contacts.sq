@@ -1,0 +1,69 @@
+import fr.acinq.bitcoin.ByteVector32;
+import fr.acinq.lightning.utils.UUID;
+import kotlin.Boolean;
+
+-- Contacts, as specified in bLIP 42 (https://github.com/lightning/blips/blob/master/blip-0042.md).
+-- * id         => uuid identifier of the contact
+-- * name       => user-defined name
+-- * offer_id   => id of the contact's offer (to match outgoing payments)
+-- * offer      => bech32-encoded Bolt 12 offer of the contact
+CREATE TABLE contacts (
+    id BLOB AS UUID NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    offer_id BLOB AS ByteVector32 NOT NULL,
+    offer TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX contacts_offer_id ON contacts(offer_id);
+
+-- Contact secrets used to mutually authenticate payments (bLIP 42).
+-- A contact has exactly one primary secret (sent when we pay them) and may have
+-- additional remote secrets (received from them when they pay us).
+-- note: boolean are stored as INTEGER, with 0=false
+CREATE TABLE contact_secrets (
+    secret BLOB AS ByteVector32 NOT NULL PRIMARY KEY,
+    contact_id BLOB AS UUID NOT NULL,
+    is_primary INTEGER AS Boolean NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX contact_secrets_contact_id ON contact_secrets(contact_id);
+
+-- queries for contacts
+
+insertContact:
+INSERT INTO contacts (id, name, offer_id, offer, created_at)
+VALUES (?, ?, ?, ?, ?);
+
+insertSecret:
+INSERT INTO contact_secrets (secret, contact_id, is_primary, created_at)
+VALUES (?, ?, ?, ?);
+
+listContacts:
+SELECT id, name, offer_id, offer, created_at FROM contacts
+ORDER BY created_at DESC;
+
+getContact:
+SELECT id, name, offer_id, offer, created_at FROM contacts
+WHERE id=?;
+
+getContactByOfferId:
+SELECT id, name, offer_id, offer, created_at FROM contacts
+WHERE offer_id=?;
+
+getContactIdBySecret:
+SELECT contact_id FROM contact_secrets
+WHERE secret=?;
+
+listSecrets:
+SELECT secret, is_primary, created_at FROM contact_secrets
+WHERE contact_id=?
+ORDER BY is_primary DESC, created_at ASC;
+
+deleteContact:
+DELETE FROM contacts WHERE id=?;
+
+deleteSecrets:
+DELETE FROM contact_secrets WHERE contact_id=?;

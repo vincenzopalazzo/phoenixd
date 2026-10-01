@@ -21,11 +21,16 @@ import fr.acinq.lightning.logging.LoggerFactory
 import fr.acinq.lightning.logging.info
 import fr.acinq.lightning.logging.warning
 import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.payment.Contacts
 import fr.acinq.lightning.utils.*
 import fr.acinq.lightning.wire.OfferTypes
 import fr.acinq.phoenixd.api.WebsocketProtocolAuthenticationProvider
 import fr.acinq.phoenixd.csv.WalletPaymentCsvWriter
 import fr.acinq.phoenixd.db.SqlitePaymentsDb
+import fr.acinq.phoenixd.db.contacts.SqliteContactsDb
+import fr.acinq.phoenixd.payments.contactSecret
+import fr.acinq.phoenixd.payments.payerAddress
+import fr.acinq.phoenixd.payments.payerOffer
 import fr.acinq.phoenixd.json.ApiType
 import fr.acinq.phoenixd.json.ApiType.*
 import fr.acinq.phoenixd.payments.AddressResolver
@@ -63,6 +68,7 @@ import kotlin.time.Duration.Companion.seconds
 class Api(
     private val nodeParams: NodeParams,
     private val peer: Peer,
+    private val contactsDb: SqliteContactsDb,
     private val eventsFlow: SharedFlow<ApiEvent>,
     private val fullAccessPassword: String,
     private val limitedAccessPassword: String,
@@ -252,7 +258,7 @@ class Api(
                         externalId = call.parameters["externalId"] // may filter incoming payments by an external id
                     ).mapNotNull { (payment, externalId) ->
                         when (payment) {
-                            is LightningIncomingPayment -> ApiType.IncomingPayment(payment, externalId)
+                            is LightningIncomingPayment -> ApiType.IncomingPayment(payment, externalId, contactsDb.getContactForPayment(payment))
                             is @Suppress("DEPRECATION") LegacyPayToOpenIncomingPayment -> ApiType.IncomingPayment(payment, externalId)
                             else -> null
                         }
@@ -263,7 +269,7 @@ class Api(
                     val paymentHash = call.parameters.getByteVector32("paymentHash")
                     val metadata = paymentDb.metadataQueries.get(paymentHash)
                     val payment: ApiType? = when (val payment = paymentDb.getIncomingPayment(paymentHash)) {
-                        is LightningIncomingPayment -> ApiType.IncomingPayment(payment, metadata?.externalId)
+                        is LightningIncomingPayment -> ApiType.IncomingPayment(payment, metadata?.externalId, contactsDb.getContactForPayment(payment))
                         is @Suppress("DEPRECATION") LegacyPayToOpenIncomingPayment -> ApiType.IncomingPayment(payment, metadata?.externalId)
                         else -> null
                     }
@@ -312,7 +318,76 @@ class Api(
                         ?.let { call.respond(it) }
                         ?: call.respond(HttpStatusCode.NoContent)
                 }
+                get("contacts") {
+                    call.respond(contactsDb.listContacts().map { ApiType.Contact(it) })
+                }
+                get("contacts/{contactId}") {
+                    val contactId = call.parameters.getUUID("contactId")
+                    contactsDb.getContact(contactId)
+                        ?.let { call.respond(ApiType.Contact(it)) }
+                        ?: call.respond(HttpStatusCode.NoContent)
+                }
                 authenticate("full-access", strategy = AuthenticationStrategy.Required) {
+                    // bLIP 42 contacts: adding a contact means we're willing to reveal our identity when paying them (see "paycontact").
+                    post("contacts") {
+                        val formParameters = call.receiveParameters()
+                        val name = formParameters.getString("name")
+                        val ourOffer = nodeParams.defaultOffer(peer.walletParams.trampolineNode.id)
+                        val contact = when (val paymentHash = formParameters.getOptionalByteVector32("paymentHash")) {
+                            null -> {
+                                // We haven't received a payment from this contact: we derive a deterministic contact secret from both offers.
+                                val offer = formParameters.getOffer("offer")
+                                contactsDb.getContactForOffer(offer.offerId)?.let { badRequest("this offer already belongs to contact ${it.id}") }
+                                contactsDb.createContact(name, offer, Contacts.computeContactSecret(ourOffer, offer))
+                            }
+                            else -> {
+                                // This contact paid us: we must reuse the contact secret and the payment details they sent us.
+                                val payment = paymentDb.getIncomingPayment(paymentHash) as? Bolt12IncomingPayment ?: badRequest("payment not found or not a Bolt 12 payment")
+                                val metadata = payment.metadata
+                                val remoteSecret = metadata.contactSecret ?: badRequest("payment doesn't include a contact secret")
+                                contactsDb.getContactForSecret(remoteSecret)?.let { badRequest("payment already matches contact ${it.id}") }
+                                val payerOffer = metadata.payerOffer ?: metadata.payerAddress?.let { payerAddress ->
+                                    // The payer only provided a BIP 353 address: we fetch their offer and verify that it matches the signing key they committed to.
+                                    val resolved = payDnsAddress.resolveBip353Offer(payerAddress.address.name, payerAddress.address.domain) ?: badRequest("could not resolve payer address ${payerAddress.address}")
+                                    if (!payerAddress.verify(resolved)) badRequest("offer found for ${payerAddress.address} doesn't match the signing key committed to in the payment")
+                                    resolved
+                                } ?: badRequest("payment doesn't include payer contact details")
+                                contactsDb.createContact(name, payerOffer, Contacts.fromRemoteSecret(remoteSecret))
+                            }
+                        }
+                        call.respond(ApiType.Contact(contact))
+                    }
+                    post("contacts/{contactId}/payments") {
+                        // Attribute a received payment to an existing contact that used a different contact secret (e.g. they added us independently or from another wallet).
+                        val contactId = call.parameters.getUUID("contactId")
+                        val formParameters = call.receiveParameters()
+                        val paymentHash = formParameters.getByteVector32("paymentHash")
+                        val payment = paymentDb.getIncomingPayment(paymentHash) as? Bolt12IncomingPayment ?: badRequest("payment not found or not a Bolt 12 payment")
+                        val remoteSecret = payment.metadata.contactSecret ?: badRequest("payment doesn't include a contact secret")
+                        contactsDb.getContactForSecret(remoteSecret)?.let { if (it.id != contactId) badRequest("payment already matches contact ${it.id}") }
+                        contactsDb.addRemoteSecret(contactId, remoteSecret)
+                            ?.let { call.respond(ApiType.Contact(it)) }
+                            ?: badRequest("unknown contact")
+                    }
+                    delete("contacts/{contactId}") {
+                        val contactId = call.parameters.getUUID("contactId")
+                        if (contactsDb.deleteContact(contactId)) call.respond(HttpStatusCode.OK) else call.respond(HttpStatusCode.NoContent)
+                    }
+                    post("paycontact") {
+                        val formParameters = call.receiveParameters()
+                        val contactId = formParameters.getUUID("contactId")
+                        val contact = contactsDb.getContact(contactId) ?: badRequest("unknown contact")
+                        val overrideAmount = formParameters.getOptionalAmount()
+                        val amount = (overrideAmount ?: contact.offer.amount) ?: missing("amountSat")
+                        val note = formParameters["message"]
+                        // bLIP 42: we reveal our identity to this contact by including our contact secret (lightning-kmp also includes our offer).
+                        val ourOffer = nodeParams.defaultOffer(peer.walletParams.trampolineNode.id)
+                        when (val event = peer.payOffer(amount, contact.offer, payerKey = ourOffer.privateKey, payerNote = note, contactSecret = contact.secrets.primarySecret, fetchInvoiceTimeout = 30.seconds)) {
+                            is fr.acinq.lightning.io.PaymentSent -> call.respond(PaymentSent(event))
+                            is fr.acinq.lightning.io.PaymentNotSent -> call.respond(PaymentFailed(event))
+                            is fr.acinq.lightning.io.OfferNotPaid -> call.respond(PaymentFailed(event))
+                        }
+                    }
                     post("payinvoice") {
                         val formParameters = call.receiveParameters()
                         val overrideAmount = formParameters.getOptionalAmount()
@@ -330,7 +405,8 @@ class Api(
                         val offer = formParameters.getOffer("offer")
                         val amount = (overrideAmount ?: offer.amount) ?: missing("amountSat")
                         val note = formParameters["message"]
-                        when (val event = peer.payOffer(amount, offer, payerKey = nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).privateKey, payerNote = note, fetchInvoiceTimeout = 30.seconds)) {
+                        // Identity is only revealed when paying through the "paycontact" route (bLIP 42).
+                        when (val event = peer.payOffer(amount, offer, payerKey = nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).privateKey, payerNote = note, contactSecret = null, fetchInvoiceTimeout = 30.seconds)) {
                             is fr.acinq.lightning.io.PaymentSent -> call.respond(PaymentSent(event))
                             is fr.acinq.lightning.io.PaymentNotSent -> call.respond(PaymentFailed(event))
                             is fr.acinq.lightning.io.OfferNotPaid -> call.respond(PaymentFailed(event))
@@ -355,7 +431,7 @@ class Api(
                                 is Either.Right -> {
                                     // OFFER
                                     val offer = either.value
-                                    when (val event = peer.payOffer(amount, offer, payerKey = nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).privateKey, payerNote = note, fetchInvoiceTimeout = 30.seconds)) {
+                                    when (val event = peer.payOffer(amount, offer, payerKey = nodeParams.defaultOffer(peer.walletParams.trampolineNode.id).privateKey, payerNote = note, contactSecret = null, fetchInvoiceTimeout = 30.seconds)) {
                                         is fr.acinq.lightning.io.PaymentSent -> call.respond(PaymentSent(event))
                                         is fr.acinq.lightning.io.PaymentNotSent -> call.respond(PaymentFailed(event))
                                         is fr.acinq.lightning.io.OfferNotPaid -> call.respond(PaymentFailed(event))

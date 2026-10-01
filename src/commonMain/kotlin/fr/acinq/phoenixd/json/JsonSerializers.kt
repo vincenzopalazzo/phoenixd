@@ -27,7 +27,10 @@ import fr.acinq.lightning.payment.Bolt11Invoice
 import fr.acinq.lightning.utils.UUID
 import fr.acinq.lightning.utils.currentTimestampMillis
 import fr.acinq.lightning.wire.LiquidityAds
+import fr.acinq.phoenixd.db.contacts.Contact as DbContact
 import fr.acinq.phoenixd.db.payments.PaymentMetadata
+import fr.acinq.phoenixd.payments.payerAddress
+import fr.acinq.phoenixd.payments.payerOffer
 import fr.acinq.phoenixd.payments.lnurl.models.Lnurl
 import fr.acinq.phoenixd.payments.lnurl.models.LnurlWithdraw
 import io.ktor.http.*
@@ -103,14 +106,40 @@ sealed class ApiType {
 
     @Serializable
     @SerialName("payment_received")
-    data class PaymentReceived(@SerialName("amountSat") val amount: Satoshi, val paymentHash: ByteVector32, val externalId: String?, val payerNote: String?, val payerKey: PublicKey?, @Transient val webhookUrl: Url? = null) : ApiEvent() {
-        constructor(payment: LightningIncomingPayment, metadata: PaymentMetadata?) : this(
+    data class PaymentReceived(
+        @SerialName("amountSat") val amount: Satoshi,
+        val paymentHash: ByteVector32,
+        val externalId: String?,
+        val payerNote: String?,
+        val payerKey: PublicKey?,
+        /** bLIP 42: the contact that made this payment, if the payer included the secret of one of our contacts. */
+        val contactId: UUID?,
+        /** bLIP 42: the payer's offer, only exposed when the payer isn't already one of our contacts. */
+        val payerOffer: String?,
+        @Transient val webhookUrl: Url? = null
+    ) : ApiEvent() {
+        constructor(payment: LightningIncomingPayment, metadata: PaymentMetadata?, contact: DbContact?) : this(
             amount = payment.amount.truncateToSatoshi(),
             paymentHash = payment.paymentHash,
             externalId = metadata?.externalId,
             payerNote = (payment as? Bolt12IncomingPayment)?.metadata?.payerNote,
             payerKey = (payment as? Bolt12IncomingPayment)?.metadata?.payerKey,
+            contactId = contact?.id,
+            payerOffer = if (contact == null) (payment as? Bolt12IncomingPayment)?.metadata?.payerOffer?.encode() else null,
             webhookUrl = metadata?.webhookUrl
+        )
+    }
+
+    /** A trusted contact, as specified in bLIP 42. Contact secrets are never exposed. */
+    @Serializable
+    @SerialName("contact")
+    data class Contact(val contactId: UUID, val name: String, val offerId: ByteVector32, val offer: String, val createdAt: Long) : ApiType() {
+        constructor(contact: DbContact) : this(
+            contactId = contact.id,
+            name = contact.name,
+            offerId = contact.offer.offerId,
+            offer = contact.offer.encode(),
+            createdAt = contact.createdAt,
         )
     }
 
@@ -155,11 +184,17 @@ sealed class ApiType {
         val fees: MilliSatoshi,
         val payerNote: String?,
         val payerKey: PublicKey?,
+        /** bLIP 42: the contact that made this payment, if the payer included the secret of one of our contacts. */
+        val contactId: UUID?,
+        /** bLIP 42: the payer's offer, only exposed when the payer isn't already one of our contacts. */
+        val payerOffer: String?,
+        /** bLIP 42: the payer's BIP 353 address (unverified), only exposed when the payer isn't already one of our contacts. */
+        val payerAddress: String?,
         val expiresAt: Long?,
         val completedAt: Long?,
         val createdAt: Long
     ) : ApiType() {
-        constructor(payment: LightningIncomingPayment, externalId: String?) : this(
+        constructor(payment: LightningIncomingPayment, externalId: String?, contact: DbContact?) : this(
             subType = "lightning",
             paymentHash = payment.paymentHash,
             preimage = payment.paymentPreimage,
@@ -173,6 +208,9 @@ sealed class ApiType {
             fees = payment.fees,
             payerNote = (payment as? Bolt12IncomingPayment)?.metadata?.payerNote,
             payerKey = (payment as? Bolt12IncomingPayment)?.metadata?.payerKey,
+            contactId = contact?.id,
+            payerOffer = if (contact == null) (payment as? Bolt12IncomingPayment)?.metadata?.payerOffer?.encode() else null,
+            payerAddress = if (contact == null) (payment as? Bolt12IncomingPayment)?.metadata?.payerAddress?.address?.toString() else null,
             expiresAt = (payment as? Bolt11IncomingPayment)?.paymentRequest?.expirySeconds?.let { payment.createdAt + it.seconds.inWholeMilliseconds },
             completedAt = payment.completedAt,
             createdAt = payment.createdAt,
@@ -193,6 +231,9 @@ sealed class ApiType {
             fees = payment.fees,
             payerNote = (payment.origin as? LegacyPayToOpenIncomingPayment.Origin.Offer)?.metadata?.payerNote,
             payerKey = (payment.origin as? LegacyPayToOpenIncomingPayment.Origin.Offer)?.metadata?.payerKey,
+            contactId = null,
+            payerOffer = null,
+            payerAddress = null,
             expiresAt = (payment.origin as? LegacyPayToOpenIncomingPayment.Origin.Invoice)?.paymentRequest?.expirySeconds?.let { payment.createdAt + it.seconds.inWholeMilliseconds },
             completedAt = payment.completedAt,
             createdAt = payment.createdAt,

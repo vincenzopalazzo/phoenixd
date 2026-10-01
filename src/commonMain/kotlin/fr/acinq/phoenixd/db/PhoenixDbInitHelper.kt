@@ -22,7 +22,9 @@ fun createPhoenixDb(driver: SqlDriver) = PhoenixDatabase(
     payments_outgoingAdapter = Payments_outgoing.Adapter(UUIDAdapter, ByteVector32Adapter, TxIdAdapter, OutgoingPaymentAdapter),
     link_lightning_outgoing_payment_partsAdapter = Link_lightning_outgoing_payment_parts.Adapter(UUIDAdapter, UUIDAdapter),
     on_chain_txsAdapter = On_chain_txs.Adapter(UUIDAdapter, TxIdAdapter),
-    payments_metadataAdapter = Payments_metadata.Adapter(UUIDAdapter, UrlAdapter)
+    payments_metadataAdapter = Payments_metadata.Adapter(UUIDAdapter, UrlAdapter),
+    contactsAdapter = Contacts.Adapter(UUIDAdapter, ByteVector32Adapter),
+    contact_secretsAdapter = Contact_secrets.Adapter(ByteVector32Adapter, UUIDAdapter)
 )
 
 object ChannelAdapter : ColumnAdapter<PersistedChannelState, ByteArray> {

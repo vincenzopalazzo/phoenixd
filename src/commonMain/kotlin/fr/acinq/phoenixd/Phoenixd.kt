@@ -46,6 +46,7 @@ import fr.acinq.phoenixd.conf.getOrGenerateSeed
 import fr.acinq.phoenixd.conf.passwordFile
 import fr.acinq.phoenixd.db.SqliteChannelsDb
 import fr.acinq.phoenixd.db.SqlitePaymentsDb
+import fr.acinq.phoenixd.db.contacts.SqliteContactsDb
 import fr.acinq.phoenixd.db.createPhoenixDb
 import fr.acinq.phoenixd.json.ApiType
 import fr.acinq.phoenixd.logs.TimestampFormatter
@@ -311,6 +312,7 @@ class Phoenixd : CliktCommand() {
         val database = createPhoenixDb(driver)
         val channelsDb = SqliteChannelsDb(driver, database)
         val paymentsDb = SqlitePaymentsDb(database)
+        val contactsDb = SqliteContactsDb(database)
 
         val (blockchainClient, blockchainWatcher) = when (val mempoolUrl = mempoolSpaceUrl) {
             null -> {
@@ -344,7 +346,9 @@ class Phoenixd : CliktCommand() {
                                     when (val payment = it.payment) {
                                         is LightningIncomingPayment -> {
                                             val metadata = paymentsDb.metadataQueries.get(payment.paymentHash)
-                                            emit(ApiType.PaymentReceived(payment, metadata))
+                                            // bLIP 42: identify the payer if they included the secret of one of our contacts.
+                                            val contact = contactsDb.getContactForPayment(payment)
+                                            emit(ApiType.PaymentReceived(payment, metadata, contact))
                                         }
                                         else -> {}
                                     }
@@ -508,7 +512,7 @@ class Phoenixd : CliktCommand() {
                 reuseAddress = true
             },
             module = {
-                Api(nodeParams, peer, eventsFlow, httpOptions.httpPassword, httpOptions.httpPasswordLimitedAccess, httpOptions.webHookUrls, httpOptions.webHookSecret, loggerFactory).run { module() }
+                Api(nodeParams, peer, contactsDb, eventsFlow, httpOptions.httpPassword, httpOptions.httpPasswordLimitedAccess, httpOptions.webHookUrls, httpOptions.webHookSecret, loggerFactory).run { module() }
             }
         )
 

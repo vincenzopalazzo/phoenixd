@@ -1,0 +1,23 @@
+-- Migration: v5 -> v6
+--
+-- Adds bLIP 42 contacts (see Contacts.sq).
+
+CREATE TABLE contacts (
+    id BLOB NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    offer_id BLOB NOT NULL,
+    offer TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX contacts_offer_id ON contacts(offer_id);
+
+CREATE TABLE contact_secrets (
+    secret BLOB NOT NULL PRIMARY KEY,
+    contact_id BLOB NOT NULL,
+    is_primary INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX contact_secrets_contact_id ON contact_secrets(contact_id);

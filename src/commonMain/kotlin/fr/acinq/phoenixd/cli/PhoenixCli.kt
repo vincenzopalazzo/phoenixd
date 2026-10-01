@@ -59,6 +59,12 @@ fun main(args: Array<String>): kotlin.Unit =
             PayInvoice(),
             PayOffer(),
             PayLnAddress(),
+            ListContacts(),
+            GetContact(),
+            CreateContact(),
+            AttachPaymentToContact(),
+            DeleteContact(),
+            PayContact(),
             DecodeInvoice(),
             DecodeOffer(),
             LnurlPay(),
@@ -304,6 +310,71 @@ class PayOffer : PhoenixCliCommand(name = "payoffer", help = "Pay a Lightning of
                 amountSat?.let { append("amountSat", amountSat.toString()) }
                 sendAll?.let { append("sendAll", "true") }
                 append("offer", offer)
+                message?.let { append("message", message.toString()) }
+            }
+        )
+    }
+}
+
+class ListContacts : PhoenixCliCommand(name = "listcontacts", help = "List bLIP 42 contacts") {
+    override suspend fun httpRequest() = commonOptions.httpClient.use {
+        it.get(url = commonOptions.baseUrl / "contacts")
+    }
+}
+
+class GetContact : PhoenixCliCommand(name = "getcontact", help = "Get a bLIP 42 contact", printHelpOnEmptyArgs = true) {
+    private val contactId by option("--contactId").required()
+    override suspend fun httpRequest() = commonOptions.httpClient.use {
+        it.get(url = commonOptions.baseUrl / "contacts/$contactId")
+    }
+}
+
+class CreateContact : PhoenixCliCommand(name = "createcontact", help = "Add a bLIP 42 contact, either from their offer or from a payment they sent us", printHelpOnEmptyArgs = true) {
+    private val contactName by option("--name").required()
+    private val offer by option("--offer").help { "The contact's Bolt 12 offer" }
+    private val paymentHash by option("--paymentHash", "--hash").convert { it.toByteVector32() }.help { "A Bolt 12 payment received from this contact that included their contact details" }
+    override suspend fun httpRequest() = commonOptions.httpClient.use {
+        it.submitForm(
+            url = (commonOptions.baseUrl / "contacts").toString(),
+            formParameters = parameters {
+                append("name", contactName)
+                offer?.let { append("offer", it) }
+                paymentHash?.let { append("paymentHash", it.toHex()) }
+            }
+        )
+    }
+}
+
+class AttachPaymentToContact : PhoenixCliCommand(name = "attachpaymenttocontact", help = "Attribute a received Bolt 12 payment to an existing bLIP 42 contact (stores the secret they used)", printHelpOnEmptyArgs = true) {
+    private val contactId by option("--contactId").required()
+    private val paymentHash by option("--paymentHash", "--hash").convert { it.toByteVector32() }.required()
+    override suspend fun httpRequest() = commonOptions.httpClient.use {
+        it.submitForm(
+            url = (commonOptions.baseUrl / "contacts/$contactId/payments").toString(),
+            formParameters = parameters {
+                append("paymentHash", paymentHash.toHex())
+            }
+        )
+    }
+}
+
+class DeleteContact : PhoenixCliCommand(name = "deletecontact", help = "Delete a bLIP 42 contact", printHelpOnEmptyArgs = true) {
+    private val contactId by option("--contactId").required()
+    override suspend fun httpRequest() = commonOptions.httpClient.use {
+        it.delete(url = commonOptions.baseUrl / "contacts/$contactId")
+    }
+}
+
+class PayContact : PhoenixCliCommand(name = "paycontact", help = "Pay a bLIP 42 contact, revealing our identity to them", printHelpOnEmptyArgs = true) {
+    private val contactId by option("--contactId").required()
+    private val amountSat by option("--amountSat").long()
+    private val message by option("--message").help { "Optional payer note" }
+    override suspend fun httpRequest() = commonOptions.httpClient.use {
+        it.submitForm(
+            url = (commonOptions.baseUrl / "paycontact").toString(),
+            formParameters = parameters {
+                append("contactId", contactId)
+                amountSat?.let { append("amountSat", amountSat.toString()) }
                 message?.let { append("message", message.toString()) }
             }
         )
